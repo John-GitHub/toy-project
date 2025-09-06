@@ -1,0 +1,6 @@
+# Ignoring IDE and OS-specific files
+.vscode/
+__pycache__/
+
+# Ignoring raw data to prevent large file commits
+data/raw/*

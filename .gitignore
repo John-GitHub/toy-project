@@ -9,6 +9,11 @@ __pycache__/
 # Ignoring all contents of data directories
 data/raw/
 data/processed/bin.txt
-tmp/
 /bin.txt
-/tmp/
+
+# Local virtual environment
+.venv/
+
+# Editable install metadata
+src/*.egg-info/
+

@@ -1,0 +1,54 @@
+# Canonical API Contract for build_date_spine (single source of truth)
+contract_id: spine.build_date_spine
+schema_version: "0.9.0" # Version lowered to reflect baseline functionality
+content_hash: "<to-be-filled-by-script>"   # Computed in CI to verify contract against code
+
+policy:
+  timezone:
+    public_surface: "date-only (no tz). Output invariant to machine timezone/locale."
+    provider_rule: "Timezone logic (e.g., for NYSE) lives inside the selected calendar provider."
+  compatibility:
+    minors: "May add nullable columns."
+    majors: "Rename/remove columns or change semantics."
+
+api:
+  function: build_date_spine
+  signature:
+    params:
+      start: {types: ["YYYY-MM-DD", "pd.Timestamp"], required: true}
+      end:   {types: ["YYYY-MM-DD", "pd.Timestamp"], required: true}
+  returns: {type: "pd.DataFrame", desc: "One row per day between start and end, inclusive."}
+  invariants:
+    - "start <= end"
+    - "date_id unique and monotonic with date"
+    - "Output identical regardless of OS/user timezone"
+  errors:
+    - {condition: "start > end", raises: "ValueError"}
+
+table:
+  name: dim_date_spine
+  description: "Canonical date dimension; one row per day."
+  columns:
+    - {name: date, dtype: "datetime64[ns]", semantics: "date-only; normalized midnight; no tz"}
+    - {name: date_id, dtype: "Int32", semantics: "YYYYMMDD; conformed key", rationale: "Kimball-style surrogate key"}
+    - {name: day_of_week, dtype: "UInt8", semantics: "1–7 (Mon=1 … Sun=7)"}
+    - {name: is_weekend, dtype: "boolean", semantics: "day_of_week in {6,7}"}
+    - {name: week_of_year, dtype: "UInt8", semantics: "ISO week (1–53)"}
+    - {name: quarter, dtype: "UInt8", semantics: "1–4"}
+    - {name: is_month_start, dtype: "boolean"}
+    - {name: is_month_end, dtype: "boolean"}
+    - {name: is_quarter_start, dtype: "boolean"}
+    - {name: is_quarter_end, dtype: "boolean"}
+    - {name: is_year_start, dtype: "boolean"}
+    - {name: is_year_end, dtype: "boolean"}
+    - {name: is_business_day, dtype: "boolean", semantics: "day_of_week in {1,2,3,4,5}",
+       rationale: "Name aligns with Kimball/dbt boolean style (`is_` prefix). Based on Mon-Fri."}
+
+notes:
+  naming_frameworks:
+    - "Kimball dimensional modeling: conformed dims; surrogate keys; stable naming."
+    - "dbt style: snake_case columns; clear model names; tests tied to contract."
+  examples:
+    - usage: "from spine import build_date_spine; df = build_date_spine('2020-01-01','2020-12-31')"
+
+

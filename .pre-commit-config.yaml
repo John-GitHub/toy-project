@@ -1,15 +1,15 @@
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.6.0
+    rev: v4.6.0     # <— pin back
     hooks:
-      - id: end-of-file-fixer         # ensures file ends with a single newline
-      - id: trailing-whitespace       # removes stray trailing spaces
-      - id: mixed-line-ending         # fixes CRLF/LF inconsistencies
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending
         args: [--fix=lf]
-      - id: check-yaml                # validates YAML syntax
-      - id: check-toml                # validates TOML syntax
-      - id: check-added-large-files   # prevents accidentally committing huge files
-        args: ["--maxkb=5000"]        # ~5 MB
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+        args: ["--maxkb=5000"]
 
   # (Optional, later) Add Python formatters/linters when ready:
   # - repo: https://github.com/psf/black

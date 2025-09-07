@@ -1,6 +1,11 @@
 # Ignoring IDE and OS-specific files
 .vscode/
 __pycache__/
+.DS_Store
 
-# Ignoring raw data to prevent large file commits
-data/raw/*
+# Ignoring database files
+*.sqlite
+
+# Ignoring all contents of data directories
+data/raw/
+data/processed/

@@ -9,10 +9,12 @@ ls_man.txt
 notebooks/
 pyproject.toml
 src/
+standars/
 tests/
 tools/
 
 ./contracts:
+index.yaml
 
 ./data:
 processed/
@@ -40,7 +42,11 @@ spine/
 ./notebooks:
 
 ./src:
+etl/
 spine/
+
+./src/etl:
+etl_land_fred.contract.yaml
 
 ./src/spine:
 __init__.py
@@ -51,6 +57,11 @@ date_spine.py
 ./src/spine/__pycache__:
 __init__.cpython-311.pyc
 date_spine.cpython-311.pyc
+
+./standars:
+common_policies.standard.yaml
+etl_landing.stantard.yaml
+warehouse_modeling.standard.yaml
 
 ./tests:
 fixtures/

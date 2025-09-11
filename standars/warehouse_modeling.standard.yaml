@@ -1,3 +1,99 @@
-Stub
+# File: standars/warehouse_modeling.standard.yaml
 
- warehouse_modeling.standard.yaml   # dimensional modeling, naming, keys, tests
+standard_id: warehouse_modeling
+version: "1.0.1"
+description: >
+  Conventions for warehouse-facing schemas (dimensions and facts). Raw landing
+  artifacts may only partially conform; this standard governs promoted tables
+  intended for analytics and downstream products.
+
+naming:
+  case: "snake_case"
+  surrogate_keys:
+    pattern: "<entity>_id"         # e.g., customer_id
+    date_key: "date_id"            # canonical YYYYMMDD integer
+  booleans:
+    prefix: "is_"
+  dates:
+    format: "YYYY-MM-DD"           # ISO 8601
+    week_standard: "ISO-8601"      # weeks 1–53
+
+dimensional_modeling:
+  philosophy: "Kimball-style conformed dimensions; star schemas preferred."
+  dimensions:
+    must_have_surrogate_key: true
+    must_document_semantics: true
+    scd:
+      type2_optional: true
+      type1_default: true
+  facts:
+    foreign_keys_reference: "conformed dimension surrogate keys"
+    grain_must_be_documented: true
+
+columns:
+  required_metadata:
+    - name
+    - dtype
+    - semantics
+  optional_metadata:
+    - rationale
+    - tests
+  conventions:
+    not_null_keys: true
+    uniqueness_for_keys: true
+
+tests:
+  warehouse_tables:
+    - unique_primary_key
+    - not_null_required_columns
+    - accepted_values_for_booleans
+    - foreign_keys_match_dimensions
+  raw_layer_expectations:
+    guidance: >
+      Raw landing artifacts are permitted to diverge from warehouse tests.
+      At minimum, raw artifacts SHOULD:
+        - use snake_case identifiers
+        - include a date surrogate (date_id) where dates are present
+        - declare explicit primary uniqueness where applicable
+        - avoid sentinel values for missing data (use NULL)
+        - include a minimal key→value meta store for lineage when feasible
+
+governance:
+  schema_versioning:
+    minors: "Adding nullable columns or metadata is allowed"
+    majors: "Removing/renaming columns or changing semantics requires major bump"
+  fingerprinting:
+    algorithm: "sha256"
+    covers: ["columns", "keys", "invariants"]
+    enforcement: "advised_for_warehouse"  # not required for raw
+    rationale: >
+      Fingerprinting is recommended for promoted warehouse tables. Raw landing
+      objects may omit fingerprints to maintain Unix-like simplicity.
+
+raw_layer_bridge:
+  purpose: >
+    Define minimum conventions for artifacts produced by ETL landing steps to
+    ease promotion into the warehouse.
+  minimums:
+    - "snake_case identifiers"
+    - "date_id (YYYYMMDD int) when a date column exists"
+    - "primary uniqueness documented (e.g., obs_date unique for a single-series table)"
+    - "NULLs instead of sentinels for missing values"
+    - "optional key→value meta table for provenance (e.g., series_meta)"
+    - "PRAGMA user_version recommended for SQLite artifacts"
+
+acceptance:
+  criteria:
+    - "Dimensions expose <entity>_id surrogate keys"
+    - "Facts reference conformed dimensions"
+    - "Date dimensions expose date_id (YYYYMMDD int)"
+    - "Booleans use is_ prefix"
+    - "Warehouse tests pass (unique PK, not_null, FK integrity)"
+  exceptions:
+    - "Raw landing artifacts may skip warehouse tests; adhere to raw_layer_bridge minimums"
+
+notes:
+  - "Use ISO 8601 for all timestamps and dates."
+  - "Document grain explicitly for facts; ambiguity here causes downstream errors."
+  - "Prefer narrow, well-documented tables to wide, ad hoc structures."
+  - "When promoting from raw to warehouse, record the mapping and any semantic changes."

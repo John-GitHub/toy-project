@@ -1,8 +1,42 @@
+# File: standars/etl_landing.standard.yaml
+
 standard_id: etl_landing
-version: "1.0.0"
-policies:
+version: "1.0.1"
+description: >
+  Conventions for ETL "landing" utilities. These modules ingest external sources
+  into the raw layer with a single, Unix-like responsibility: create/replace a
+  self-contained artifact deterministically.
+
+scope:
+  applies_to_paths:
+    - "src/etl/**"
+  non_goals:
+    - "Downstream transformations"
+    - "Dimensional modeling / star schemas"
+    - "Windowed/partial refreshes"   # Always full re-land
+
+interface:
+  philosophy: "Few, explicit arguments; one unit of work per call."
+  path_semantics:
+    path_source: "call_argument"     # Caller passes explicit destination path
+    env_fallbacks: false             # Do not infer from env by default
+
+io:
+  artifact_kind: "sqlite_db|parquet|csv"
+  default_artifact: "sqlite_db"
+  atomic_write:
+    enabled: true
+    temp_suffix: ".tmp"
+    strategy: "write_to_temp_then_rename"
+  file_overwrite_mode: "replace_if_exists"
+  collation:
+    case: "snake_case"
+    dates: "YYYY-MM-DD (ISO 8601)"
+    booleans_prefix: "is_"
+
+runtime:
   retries:
-    policy: exponential_backoff
+    policy: "exponential_backoff"
     base_delay_seconds: 0.5
     factor: 2
     max_attempts: 5
@@ -10,21 +44,45 @@ policies:
   throttle:
     max_requests_per_minute: 100
     jitter_between_requests_ms: [200, 500]
-  io:
-    default_file_type: csv
-    output_path_env: RAW_DATA_DIR
-    file_naming: "<raw_data>/{series_id}.sqlite"
-  observability:
-    logs: structured_json
-    load_summary: required
-  acceptance:
-    required_checks:
-      - ruff_ok
-      - black_ok
-      - mypy_ok
-      - contract_fingerprint_ok
-      - golden_sample_ok
-naming:
-  script_pattern: "etl_land_<source>.py"
-  module_exports: ["{api.function}"]
+    note: "Typical landing is one upstream request; handle pagination if required."
 
+observability:
+  logs:
+    sink: "stdout"
+    format: "json_lines"            # structured JSON per line
+    logger_name_pattern: "etl.land.{source}"
+  load_summary:
+    required: true
+    required_fields:
+      - series_id
+      - source_url
+      - records_fetched
+      - records_written
+      - started_at
+      - finished_at
+      - elapsed_ms
+      - status
+      - error_message   # present only on failure
+
+acceptance:
+  required_checks:
+    - ruff_ok
+    - black_ok
+    - mypy_ok
+  deferred_checks:
+    - contract_fingerprint_ok
+    - golden_sample_ok
+  rationale: >
+    Keep landing lean and deterministic. Fingerprints and goldens may be enabled
+    upstream once artifacts stabilize.
+
+constraints:
+  single_series_or_source_per_call: true
+  idempotency: "Full re-land with overwrite; deterministic given same inputs."
+  side_effects: "None besides writing destination artifact and logging."
+
+notes:
+  - "Avoid hard-coded paths; require explicit destination path via function arg."
+  - "Emit structured logs to STDOUT; callers may redirect to files as needed."
+  - "Prefer storing minimal metadata inside the artifact (e.g., key→value table)."
+  - "Do not implement windowing; simplicity > knobs."

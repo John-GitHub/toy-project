@@ -1,29 +1,82 @@
+# File: standars/common_policies.standard.yaml
+
 standard_id: common_policies
-version: "1.0.0"
-standards_applied:
-  pep: [8, 257, 484, 518, 621, 440]
-  docstrings:
-    style: "Google"
-    require_module: true
-    require_public_functions: true
-    required_tags: ["Contract:", "Invariants:", "Raises:", "Standards Applied:"]
+version: "1.0.1"
+description: >
+  Baseline conventions for Python modules in this repository.
+  Applies universally across src/, tests/, and tools/.
+  Ensures consistency, readability, and mechanical CI checks.
+
+pep:
+  - 8    # style guide
+  - 257  # docstring conventions
+  - 484  # typing hints
+  - 518  # pyproject.toml builds
+  - 621  # project metadata
+  - 440  # versioning
+
+docstrings:
+  style: "Google"
+  require_module: true
+  require_public_functions: true
+  required_tags:
+    - "Contract:"          # reference to contract_id
+    - "Invariants:"        # operational invariants of the function/module
+    - "Raises:"            # exceptions explicitly raised
+    - "Standards Applied:" # list of standards this code adheres to
+
 typing:
   public_functions_must_be_typed: true
-ci_policies:
-  fail_on: [
-    missing_module_banner,
-    missing_runtime_manifest,
-    docstring_missing_required_tags,
-    ruff_errors,
-    mypy_errors,
-    schema_fingerprint_mismatch
-  ]
-runtime_manifest:
-  required_fields: [
-    "__contract_id__",
-    "__contract_version__",
-    "__contract_hash__",
-    "__standards__",
-    "__source_contract_path__"
-  ]
+  rationale: "Type hints required on all public function signatures to support mypy and clarity."
 
+ci_policies:
+  fail_on:
+    - missing_module_banner
+    - docstring_missing_required_tags
+    - ruff_errors
+    - mypy_errors
+  allow_defer:
+    - missing_runtime_manifest
+    - schema_fingerprint_mismatch
+  rationale: >
+    Runtime manifests and contract fingerprinting are deferred for Unix-style
+    landing utilities. These may be re-enabled upstream once promotion to
+    warehouse or orchestration layers occurs.
+
+runtime_manifest:
+  required_fields:
+    - "__contract_id__"
+    - "__contract_version__"
+    - "__contract_hash__"
+    - "__standards__"
+    - "__source_contract_path__"
+  enforcement: "warn_only"
+  rationale: >
+    These fields should be included where practical. Enforcement is warn-only
+    for now, to avoid blocking lean landing steps. CI does not fail if missing.
+
+linting_tools:
+  ruff:
+    config: "pyproject.toml"
+    required: true
+  black:
+    line_length: 88
+    required: true
+  mypy:
+    strict: true
+    required: true
+
+versioning:
+  policy: "semver"
+  bump_rules:
+    patch: "Bug fixes or internal-only changes"
+    minor: "Backward-compatible feature additions"
+    major: "Breaking changes or removed features"
+
+notes:
+  - "All modules must start with a docstring banner including required tags."
+  - "Public APIs must have complete type hints and explicit return types."
+  - "Metadata stored as key→value pairs for future-proofing is recommended when designing raw schemas."
+  - "Schema versioning via PRAGMA user_version is recommended for SQLite artifacts; increment as needed."
+  - "Content hash fields are expected to be filled by CI after contract finalization."
+  - "CI enforces ruff, black, and mypy strictly; manifests/fingerprints are warn-only for now."

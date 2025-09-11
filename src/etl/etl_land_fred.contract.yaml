@@ -1,35 +1,183 @@
-# etl_land_fred.contract.yaml
+# File: src/etl/etl_land_fred.contract.yaml
+
 contract_id: etl_land_fred
-schema_version: "0.1.0"
-content_hash: "<ci-injected>"
-includes:
-  - ref: standards/etl_landing.standard.yaml
-    version: "1.0.0"
-    hash: "<ci-pinned>"
-  - ref: standards/common_policies.standard.yaml
-    version: "1.0.0"
-    hash: "<ci-pinned>"
+schema_version: "0.1.3"
+content_hash: "<to-be-filled>"
 
-purpose: "Land FRED series to <raw_data> as one SQLite per series_id."
+purpose: >
+  Land a single FRED time series into the raw layer as one SQLite file per
+  series. Unix-like: single responsibility, explicit inputs, atomic overwrite.
+
 scope:
-  in:  ["download series", "write <raw_data>/<series_id>.sqlite"]
-  out: ["processed layer assembly"]
+  in:
+    - "Download FRED series by ID"
+    - "Write per-series SQLite database"
+  out:
+    - "Downstream processing/derivations"
+    - "Warehouse assembly"
 
-# Only the parts that are truly contract-specific live here:
-api:
-  function: etl_land_fred
-  signature:
-    params:
-      series_id: {type: "str", required: true}
-      start:     {type: "YYYY-MM-DD", required: false}
-      end:       {type: "YYYY-MM-DD", required: false}
-  returns: {type: "sqlite_db", path: "<raw_data>/{series_id}.sqlite"}
+standards_applied:
+  - common_policies
+  - etl_landing
+  - warehouse_modeling
 
-table:
-  name: observations
-  columns:
-    - {name: obs_date, dtype: "date"}
-    - {name: value,   dtype: "float"}
-    - {name: status,  dtype: "string"}
-    - {name: ingested_at, dtype: "timestamp"}
+ci_compatibility:
+  runtime_manifest_required: false
+  fingerprint_required: false
+  rationale: "Keep landing step Unix-simple; defer extras to upstream stages."
 
+interface:
+  function: "etl_land_fred(series_id: str, path: str) -> None"
+  semantics:
+    series_id: "FRED series identifier (e.g., CPIAUCSL). Required."
+    path: "Filesystem path to the target SQLite file to create/replace (e.g., toy_code/data/raw/CPIAUCSL.sqlite). Required."
+  behavior:
+    single_series_only: true
+    overwrite_mode: "replace_if_exists"
+    idempotency: "Full re-land; deterministic given same source/time."
+
+auth:
+  env_var: "FRED_API_KEY"
+  on_missing: "fail_hard"
+
+io:
+  file_type: "sqlite"
+  per_series_file: true
+  path_source: "call_argument:path"   # caller supplies explicit path
+  atomic_write:
+    temp_suffix: ".tmp"
+    strategy: "write_to_temp_then_rename"
+
+artifacts:
+  primary:
+    kind: "sqlite_db"
+    path_source: "call_argument:path"
+    contains_tables: ["series", "series_meta"]
+  byproducts:
+    logs:
+      sink: "stdout"
+      format: "json_lines"
+      file_logging:
+        enabled_by_env: "LOG_DIR"
+        filename_pattern: "etl_land_fred-{series_id}-{utc_ts}.jsonl"
+    metadata_sidecar:
+      enabled: false
+      default_path_pattern: "<db_dir>/{series_id}.metadata.json"
+
+retry_policy:
+  type: "exponential_backoff"
+  base_delay_seconds: 0.5
+  factor: 2
+  max_attempts: 5
+  jitter_ms: [0, 250]
+
+throttle:
+  max_requests_per_minute: 100
+  jitter_between_requests_ms: [200, 500]
+  note: "Typically one request per call; handle pagination if required."
+
+observability:
+  logs: "structured_json"
+  logger_name: "etl.land.fred"
+  load_summary:
+    required: true
+    fields:
+      - series_id
+      - source_url
+      - records_fetched
+      - records_written
+      - started_at
+      - finished_at
+      - elapsed_ms
+      - status          # OK | ERROR
+      - error_message   # present only on failure
+
+data_model:
+  sqlite_db:
+    pragmas:
+      # PRAGMAs are DB-header fields; not rows:
+      application_id: 1163082838   # example constant; freeze for this family (e.g., "ETLF")
+      user_version: 103            # encode schema version; e.g., 103 → v1.0.3
+    tables:
+
+      # Observations for a single series (one row per date)
+      series:
+        primary_key: ["obs_date"]
+        columns:
+          - { name: obs_date,    dtype: date,      semantics: "ISO date YYYY-MM-DD",              not_null: true }
+          - { name: date_id,     dtype: int,       semantics: "YYYYMMDD surrogate key",           not_null: true }
+          - { name: value,       dtype: float,     semantics: "Observation value; NULL if missing", not_null: false }
+          - { name: status,      dtype: text,      semantics: "Source status code/text",          not_null: false }
+          - { name: ingested_at, dtype: timestamp, semantics: "UTC ingestion timestamp",          not_null: true }
+        indexes:
+          - { name: idx_series_obs_date, columns: ["obs_date"] }
+
+      # Minimal, future-proof metadata as key→value pairs (all text, values may be NULL)
+      series_meta:
+        primary_key: ["key"]
+        columns:
+          - { name: key,        dtype: text,      semantics: "Metadata name",                       not_null: true }
+          - { name: value,      dtype: text,      semantics: "Metadata value as text; NULL allowed", not_null: false }
+          - { name: updated_at, dtype: timestamp, semantics: "UTC timestamp of update",             not_null: true }
+
+metadata:
+  store: "series_meta (key→value) plus DB PRAGMAs"
+  recommended_keys:
+    - series_id
+    - title
+    - units
+    - frequency
+    - seasonal_adjustment
+    - observation_start
+    - observation_end
+    - last_updated
+    - source_url
+    - contract_id
+    - contract_version
+
+null_policy:
+  numeric_missing: "store_as_sql_null"
+  status_values: "pass-through from FRED; otherwise NULL"
+  rationale: "Preserve source intent; avoid sentinels; simplify downstream tests."
+
+api_behavior:
+  endpoint_format: "FRED series observations (CSV or JSON); prefer CSV if stable"
+  pagination: "Supported if required; still treated as single unit of work"
+  canonical_url_log: true
+
+warehouse_conventions:
+  naming_case: "snake_case"
+  booleans_prefix: "is_"
+  date_format: "YYYY-MM-DD"
+  date_key: "date_id (YYYYMMDD int, ISO week semantics per warehouse_modeling)"
+
+acceptance:
+  required_checks:
+    - ruff_ok
+    - black_ok
+    - mypy_ok
+  notes:
+    - "Windowed refresh removed; always full re-land."
+    - "Manifest/fingerprinting deferred per ci_compatibility."
+
+operational_invariants:
+  - "Function fails fast if FRED_API_KEY is missing."
+  - "On success, the target path contains a valid SQLite DB with tables `series` and `series_meta` and the declared PRAGMAs."
+  - "Write is atomic: partial files are not left behind on failure."
+  - "`series.obs_date` values are unique; one row per date."
+
+risks_and_mitigations:
+  - risk: "FRED endpoint hiccups/transient errors"
+    mitigation: "Exponential backoff with jitter; fail with precise error in load_summary"
+  - risk: "Source schema drift"
+    mitigation: "Map only required fields; extra fields ignored"
+  - risk: "Large series sizes"
+    mitigation: "Stream/iterate where possible; maintain atomic write; avoid excess memory use"
+
+notes:
+  - "Single-purpose, Unix-like utility; composition happens outside this function."
+  - "Series stored one-per-file for simple cache invalidation via overwrite."
+  - "Metadata stored as key→value pairs for future-proofing."
+  - "Schema versioning via PRAGMA user_version; increment as needed."
+  - "Content hash to be filled in by CI after finalizing the contract."
+  

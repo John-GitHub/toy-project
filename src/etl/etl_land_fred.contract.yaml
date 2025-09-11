@@ -1,0 +1,35 @@
+# etl_land_fred.contract.yaml
+contract_id: etl_land_fred
+schema_version: "0.1.0"
+content_hash: "<ci-injected>"
+includes:
+  - ref: standards/etl_landing.standard.yaml
+    version: "1.0.0"
+    hash: "<ci-pinned>"
+  - ref: standards/common_policies.standard.yaml
+    version: "1.0.0"
+    hash: "<ci-pinned>"
+
+purpose: "Land FRED series to <raw_data> as one SQLite per series_id."
+scope:
+  in:  ["download series", "write <raw_data>/<series_id>.sqlite"]
+  out: ["processed layer assembly"]
+
+# Only the parts that are truly contract-specific live here:
+api:
+  function: etl_land_fred
+  signature:
+    params:
+      series_id: {type: "str", required: true}
+      start:     {type: "YYYY-MM-DD", required: false}
+      end:       {type: "YYYY-MM-DD", required: false}
+  returns: {type: "sqlite_db", path: "<raw_data>/{series_id}.sqlite"}
+
+table:
+  name: observations
+  columns:
+    - {name: obs_date, dtype: "date"}
+    - {name: value,   dtype: "float"}
+    - {name: status,  dtype: "string"}
+    - {name: ingested_at, dtype: "timestamp"}
+

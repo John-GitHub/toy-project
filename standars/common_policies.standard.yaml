@@ -1,0 +1,29 @@
+standard_id: common_policies
+version: "1.0.0"
+standards_applied:
+  pep: [8, 257, 484, 518, 621, 440]
+  docstrings:
+    style: "Google"
+    require_module: true
+    require_public_functions: true
+    required_tags: ["Contract:", "Invariants:", "Raises:", "Standards Applied:"]
+typing:
+  public_functions_must_be_typed: true
+ci_policies:
+  fail_on: [
+    missing_module_banner,
+    missing_runtime_manifest,
+    docstring_missing_required_tags,
+    ruff_errors,
+    mypy_errors,
+    schema_fingerprint_mismatch
+  ]
+runtime_manifest:
+  required_fields: [
+    "__contract_id__",
+    "__contract_version__",
+    "__contract_hash__",
+    "__standards__",
+    "__source_contract_path__"
+  ]
+

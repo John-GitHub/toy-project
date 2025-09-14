@@ -1,7 +1,7 @@
-# File: standars/warehouse_modeling.standard.yaml
+# File: standards/warehouse_modeling.standard.yaml
 
 standard_id: warehouse_modeling
-version: "1.0.1"
+version: "1.1.0"
 description: >
   Conventions for warehouse-facing schemas (dimensions and facts). Raw landing
   artifacts may only partially conform; this standard governs promoted tables
@@ -11,25 +11,24 @@ naming:
   standard: "ISO/IEC 11179-aligned; ISO 8601 for dates/weeks"
   case: "snake_case"
   data_elements:
-    pattern: "<object_class>_<property>"    # e.g., instrument_symbol, trade_qty
-    glossary_authority: "business_glossary" # centralized term approvals
+    pattern: "<object_class>_<property>"          # e.g., instrument_symbol, trade_qty
+    glossary_authority: "business_glossary"       # centralized term approvals
     abbreviations: "discouraged; must exist in glossary if used"
+    abbreviations_policy_ref: "registry.artifacts.business_glossary"  # stewarded list; no ad-hoc short forms
   surrogate_keys:
-    pattern: "<entity>_id"                  # 'entity' ≡ 11179 object_class; kept for backward compatibility
-    date_key: "date_id"                     # canonical YYYYMMDD integer
+    pattern: "<entity>_id"                        # 'entity' ≡ 11179 object_class
+    date_key: "date_id"                           # canonical YYYYMMDD integer
   booleans:
     prefix: "is_"
-    value_domain: "BOOLEAN"                 # domain-controlled
+    value_domain: "BOOLEAN"                       # domain-controlled
   dates:
-    format: "YYYY-MM-DD"                    # ISO 8601
-    week_standard: "ISO-8601"               # ISO week 1–53
-  timestamps:
-    format: "YYYY-MM-DDTHH:MM:SSZ"          # ISO 8601 UTC 
-    timezone: "UTC"                         # all timestamps stored in UTC
-    precision: "milliseconds"               # default timestamp precision
+    format: "YYYY-MM-DD"                          # ISO 8601
+    week_standard: "ISO-8601"                     # ISO week 1–53
+    timezone: "UTC"                               # all timestamps stored in UTC
+    precision: "milliseconds"                     # default timestamp precision
     rationale: >
-      Consistent naming and formatting reduces cognitive load and parsing errors.
-      ISO standards are widely supported and avoid locale ambiguities.
+      Consistent naming and formatting reduce cognitive load and parsing errors.
+      ISO standards are widely supported and avoid locale/timezone ambiguities.
 
 dimensional_modeling:
   philosophy: "Kimball-style conformed dimensions; star schemas preferred."
@@ -39,27 +38,73 @@ dimensional_modeling:
     scd:
       type2_optional: true
       type1_default: true
+      decision_points:
+        - "Use SCD2 when analytics require as-of joins (e.g., sector reclassifications, venue renames with analytical meaning)."
+        - "Use SCD1 for corrections/cosmetic attributes that should not affect history."
+      required_fields_for_type2:
+        - "effective_from"
+        - "effective_to (nullable)"
+        - "is_current"
+        - "natural_key"
+      tests_required_for_type2:
+        - "scd2_no_overlaps"
+        - "scd2_single_current_record"
     naming_conforms_11179: "Dimension attributes follow <object_class>_<property>."
   facts:
     foreign_keys_reference: "conformed dimension surrogate keys"
     grain_must_be_documented: true
     naming_conforms_11179: "Fact attributes follow <object_class>_<property>; measures use clear property names."
 
-
 columns:
   required_metadata:
     - name
     - dtype
     - semantics
-    - object_class      # ISO/IEC 11179 DEC
-    - property         # ISO/IEC 11179 DEC
-    - value_domain     # required for booleans/enums; document for others
+    - object_class          # ISO/IEC 11179 DEC
+    - property             # ISO/IEC 11179 DEC
+    - value_domain         # BOOLEAN/ENUM/RANGE/SCALAR; for ENUM list permissible values
   optional_metadata:
     - rationale
     - tests
+    - registration_status  # 11179 (e.g., Candidate/Standard/Retired)
+    - on_new_value         # Policy for ENUM expansion: one of [fail, warn_and_quarantine]
   conventions:
     not_null_keys: true
     uniqueness_for_keys: true
+
+tests:
+  # Scope: executable checks for promoted (warehouse) tables only.
+  agency:
+    worker_bot:
+      - "Provide per-table schema spec (name, dtype, semantics, object_class, property, value_domain)."
+      - "Author/maintain test files for this table; ensure they pass locally."
+      - "Fix failures before requesting promotion."
+    manager_bot:
+      - "Verify required tests exist for the table and are wired into CI."
+      - "Run/inspect CI results; block promotion on any failure."
+  warehouse_tables:
+    - unique_primary_key                # Table has a single unique PK; duplicates fail.
+    - not_null_required_columns         # Columns marked required in spec are non-NULL.
+    - accepted_values_for_booleans      # BOOLEAN columns declare a domain; values within it; NULLs only if allowed.
+    - foreign_keys_match_dimensions     # Fact FKs exist in conformed dimensions; no orphans; required FKs non-NULL.
+    - naming_conforms_11179             # All column names <object_class>_<property>; keys <entity>_id; terms from glossary.
+    - value_domain_enforced             # ENUM/RANGE/SCALAR follow declared domain; respects optional on_new_value policy.
+    - timestamps_normalized_to_utc      # Timestamp columns stored in UTC with declared precision (e.g., ms).
+    - scd2_no_overlaps                  # SCD2: no overlapping validity intervals per natural key.
+    - scd2_single_current_record        # SCD2: exactly one current record (valid_to IS NULL or is_current=true).
+    - date_dimension_handles_week_53    # Date dim correctly assigns ISO week/year for 53-week years.
+    - timestamp_dst_invariance          # UTC conversion preserves intervals across DST transitions.
+  raw_layer_expectations:
+    guidance: >
+      Raw landing artifacts are permitted to diverge from warehouse tests.
+      At minimum, raw artifacts SHOULD:
+        - use snake_case identifiers
+        - include a date surrogate (date_id) where dates are present
+        - declare explicit primary uniqueness where applicable
+        - avoid sentinel values for missing data (use NULL)
+        - include a minimal key→value meta store for lineage when feasible
+  notes:
+    - "Raw-layer checks are governed by landing_to_warehouse_contract (LWPC) and are not enforced here."
 
 governance:
   schema_versioning:
@@ -76,31 +121,31 @@ governance:
     name: "ISO/IEC 11179 (scoped)"
     scope: ["naming", "data_element_concepts", "value_domains"]
     glossary_authority: "business_glossary"
-    rationale: >
-      ISO/IEC 11179 provides a robust framework for metadata management,
-      enhancing clarity and consistency across datasets.
 
-tests:
-  # Scope: executable checks for promoted (warehouse) tables only.
-  agency:
-    worker_bot:
-      - "Provide per-table schema spec (name, dtype, semantics, object_class, property, value_domain)."
-      - "Author/maintain test files for this table; ensure they pass locally."
-      - "Fix failures before requesting promotion."
-    manager_bot:
-      - "Verify required tests exist for the table and are wired into CI."
-      - "Run/inspect CI results; block promotion on any failure."
-  warehouse_tables:
-    - unique_primary_key                # Table has a single unique PK; duplicates fail.
-    - not_null_required_columns         # Columns marked required in spec are non-NULL.
-    - accepted_values_for_booleans      # BOOLEAN columns declare a domain; values must be within it; NULLs only if allowed.
-    - foreign_keys_match_dimensions     # Fact FKs exist in conformed dimensions; no orphans; required FKs non-NULL.
-    - naming_conforms_11179             # All column names follow <object_class>_<property>; keys use <entity>_id; terms from glossary.
-    - value_domain_enforced             # ENUM/RANGE/SCALAR follow declared domain: sets respected; ranges within bounds; dtype correct.
-    - timestamps_normalized_to_utc      # If timestamp columns exist, values are stored in UTC with declared precision (e.g., milliseconds).
-  notes:
-    - "Raw-layer checks are governed by landing_to_warehouse_contract (LWPC) and are not enforced here."
-    - "Document any deviations from the standard process."
+registry:
+  artifacts:
+    business_glossary: "glossary/business_glossary.yml"
+    dimension_registry: "registry/conformed_dimensions.yml"
+    dim_alias: "registry/dim_alias.yml"
+    role_view_registry: "registry/role_view_registry.yml"
+  pre_flight:
+    function: "normalize_and_check_v2"
+    rules:
+      - name: "Block on Exact Alias"
+        match_type: "exact"
+        confidence_threshold: 1.0
+        action: "BLOCK"
+        message: "Proposed term is a prohibited alias; use canonical term."
+      - name: "Warn on Potential Synonym"
+        match_type: "fuzzy"
+        confidence_threshold: 0.80
+        action: "WARN"
+        message: "Potential synonym; requires Business Owner sign-off."
+      - name: "Block on Prohibited Dimension Pattern"
+        match_type: "regex"
+        pattern: "_date$"
+        action: "BLOCK"
+        message: "New *_date dimension disallowed; use role-playing view over dim_date."
 
 landing_to_warehouse_contract:
   title: "Landing→Warehouse Promotion Contract (LWPC)"
@@ -116,7 +161,7 @@ landing_to_warehouse_contract:
       - "Produce raw artifacts that meet the minimums in this section."
       - "Run pre-flight lookup (glossary/registry) and attach output to the PR."
     manager_bot_responsibilities:
-      - "Review raw_layer_bridge compliance and the acceptance checklist."
+      - "Review LWPC compliance and the acceptance checklist."
       - "Raise a promotion_blocker flag if minimums are unmet or pre-flight is missing."
   flags:
     pre_flight_required: true
@@ -126,12 +171,35 @@ landing_to_warehouse_contract:
     - "date_id (YYYYMMDD int) when a date column exists"
     - "primary uniqueness documented (e.g., obs_date unique for a single-series table)"
     - "NULLs instead of sentinels for missing values"
-    - "optional key→value meta table for provenance (e.g., series_meta)"
+    - "provenance metadata columns present: source_system, source_entity, load_timestamp_utc"
     - "PRAGMA user_version recommended for SQLite artifacts"
-
 
 acceptance:
   # Scope: policy gate that ties LWPC compliance + tests + governance into a promotion decision.
+  decision_logic:
+    rules:
+      - name: "Block on Test Failure"
+        condition: "tests.status == 'FAIL'"
+        action: "BLOCK"
+        message: "WHS-Tests failed. See CI logs."
+      - name: "Block on Pre-Flight Hard Fail"
+        condition: "pre_flight.status == 'BLOCK'"
+        action: "BLOCK"
+        message: "Pre-flight: exact alias/prohibited pattern."
+      - name: "Require Sign-off on Pre-Flight Warning"
+        condition: "pre_flight.status == 'WARN' and governance.business_owner_signoff == false"
+        action: "BLOCK"
+        message: "Pre-flight WARN requires Business Owner sign-off."
+      - name: "Block on Invalid Versioning"
+        condition: "governance.version_bump_valid == false"
+        action: "BLOCK"
+        message: "Version bump violates policy."
+      - name: "Block on Missing Glossary Update"
+        condition: "schema.has_new_terms == true and artifacts.glossary_updated == false"
+        action: "BLOCK"
+        message: "New terms introduced without glossary update."
+    default_action: "APPROVE"
+    default_message: "All WHS checks passed."
   agency:
     worker_bot:
       - "Attach LWPC pre-flight output (registry/glossary lookup) to the PR."
@@ -141,6 +209,8 @@ acceptance:
       - "Review LWPC compliance and pre-flight evidence; request fixes or alias/view reuse."
       - "Confirm tests.warehouse_tables suite passed in CI; verify SCD-specific checks when applicable."
       - "Check governance items (version bump, fingerprint if used, steward approval, changelog)."
+    business_owner:
+      - "Provide explicit sign-off when pre_flight.status == WARN."
   pre_promotion_review:
     requires:
       - "LWPC minimums satisfied for source artifacts."
@@ -160,7 +230,9 @@ acceptance:
     rule: "Block if any requirement above is unmet; otherwise approve."
   notes:
     - "Acceptance is ingestion-agnostic and references LWPC for raw and tests for warehouse—no duplication."
-  rationale: >
-    This acceptance policy ensures that only well-defined, tested, and
-    governance-compliant artifacts are promoted to the warehouse, maintaining
-    data quality and consistency.
+
+notes:
+  - "Use ISO 8601 for all timestamps and dates (UTC, millisecond precision)."
+  - "Document grain explicitly for facts; ambiguity here causes downstream errors."
+  - "Prefer narrow, well-documented tables to wide, ad hoc structures."
+  - "When promoting from raw to warehouse, record the mapping and any semantic changes."

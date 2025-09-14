@@ -1,0 +1,39 @@
+standard_id: env_vars
+version: "1.0.0"
+description: "Naming, scope, and resolution rules for environment variables in this shop."
+
+naming:
+  prefix: "ETL_"              # all shop env vars start with ETL_
+  case: "UPPER_SNAKE"         # e.g., ETL_RAW_DIR, ETL_LOG_DIR
+  separators: "_"             # no hyphens or dots
+
+variables:
+  - name: "FRED_API_KEY"
+    required: true
+    scope: "secret"           # do not log values; allow 'is_set' only
+    used_by: ["etl_land_fred"]
+  - name: "ETL_RAW_DIR"
+    required: false
+    scope: "path"
+    default: "./data/raw"     # repo-relative default when not set
+    used_by: ["etl_land_fred", "etl_land_ibkr"]
+  - name: "ETL_LOG_DIR"
+    required: false
+    scope: "path"
+    default: null
+
+resolution_policy:
+  path:
+    precedence:
+      - call_argument         # explicit function arg wins
+      - env: "ETL_RAW_DIR"
+      - default: "./data/raw"
+    filename_template: "{series_id}.sqlite"
+    resolve_to_absolute: true
+  secrets:
+    logging: "never print values; only print that variable is set or missing"
+
+acceptance:
+  checks:
+    - "fail if required secrets missing (e.g., FRED_API_KEY)"
+    - "log resolved paths and their source (argument|env|default)"
